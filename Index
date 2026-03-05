@@ -28,7 +28,7 @@
 
     <script>
         // ==========================================
-        // ⚠️ 務必填入「發佈到網路」的網址
+        // https://docs.google.com/spreadsheets/d/e/2PACX-1vRNTdZpaHZ0QrhSEdL4aBHTraHZ7kf-cpi8SLIayDzAr2Dke7u50wqDSadAkwaTkXBsg8hnJfv-B5Gf/pubhtml
         // ==========================================
         const SHEET_URL = "在此貼上你的Google發佈網址";
 
