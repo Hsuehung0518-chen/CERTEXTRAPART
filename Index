@@ -3,75 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>零件庫存助手</title>
+    <title>零件庫存助手 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
+
     <div class="max-w-md mx-auto flex flex-col min-h-screen">
-        <header class="bg-slate-900 p-6 sticky top-0 z-20">
-            <h1 class="text-white font-bold mb-3">📦 庫存即時查詢</h1>
-            <input type="text" id="q" oninput="search()" placeholder="輸入零件名稱..." 
-                   class="w-full p-4 rounded-2xl bg-slate-800 text-white border-none focus:ring-2 focus:ring-blue-500">
+        <header class="bg-slate-900 p-6 sticky top-0 z-20 shadow-xl">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-white font-bold text-lg">📦 零件庫存查詢</h1>
+                <div id="loader" class="hidden"><div class="loading-spinner"></div></div>
+            </div>
+            <div class="relative">
+                <input type="text" id="q" oninput="search()" placeholder="輸入名稱、規格或位置..." 
+                       class="w-full p-4 pl-12 rounded-2xl bg-slate-800 text-white border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                <span class="absolute left-4 top-4 opacity-40">🔍</span>
+            </div>
         </header>
 
         <main id="list" class="p-4 space-y-3 flex-1">
-            <div class="text-center text-slate-400 py-10">資料載入中...</div>
+            <div class="text-center text-slate-400 py-10 italic">
+                正在連接雲端資料庫...
+            </div>
         </main>
 
-        <footer class="p-4 text-center">
-            <button onclick="fetchData()" class="text-xs text-blue-500 underline">手動刷新數據</button>
+        <footer class="p-6 text-center border-t border-slate-100 bg-white">
+            <div id="stat" class="text-xs text-slate-400 mb-2">庫存總計：-- 筆</div>
+            <button onclick="fetchData()" class="text-sm font-bold text-blue-600 hover:text-blue-800 transition">
+                🔄 立即更新數據
+            </button>
         </footer>
     </div>
 
     <script>
-        // --- 請貼入你「發佈到網路」的 Google Sheet 網址 ---
-        const SHEET_URL = "在此貼入你的Google_Sheet發佈網址";
-        // ----------------------------------------------
-        
+        /**
+         * ⚠️ 重要設定：請在此處更換為你的 Google Sheet「發佈到網路」之網址
+         */
+        const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5nsc4G9qR5-X73BwWp0Q6N7q8Y3j6n-2x9v4-v...你的網址.../pubhtml";
+
         let inventory = [];
 
+        // 核心功能：讀取資料
         async function fetchData() {
+            const listEl = document.getElementById('list');
+            const loader = document.getElementById('loader');
+            const statEl = document.getElementById('stat');
+            
+            loader.classList.remove('hidden');
+            
             try {
-                // 讀取 CSV 格式較快且穩定
-                const csvUrl = SHEET_URL.replace(/\/pubhtml.*/, "/pub?output=csv");
+                // 自動將 pubhtml 網址轉為 csv 格式以利讀取
+                let csvUrl = SHEET_URL;
+                if (SHEET_URL.includes("pubhtml")) {
+                    csvUrl = SHEET_URL.replace("pubhtml", "pub?output=csv");
+                } else if (!SHEET_URL.includes("output=csv")) {
+                    csvUrl = SHEET_URL + (SHEET_URL.includes("?") ? "&" : "?") + "output=csv";
+                }
+
                 const response = await fetch(csvUrl);
-                const data = await response.text();
+                if (!response.ok) throw new Error("Google 拒絕連線，請確認已「發佈到網路」");
                 
-                // 簡單的 CSV 解析 (跳過第一列標題)
-                const rows = data.split('\n').slice(1);
-                inventory = rows.map(row => {
-                    const cols = row.split(',');
-                    return { name: cols[0], qty: cols[1], spec: cols[2], loc: cols[3] };
-                });
-                search();
+                const csvText = await response.text();
+                
+                // 解析 CSV 並過濾空行
+                const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== "");
+                
+                // 讀取標題後的內容 (假設: 0:名稱, 1:數量, 2:規格, 3:儲位)
+                inventory = rows.slice(1).map(row => {
+                    // 處理 CSV 逗號與空格
+                    const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/); 
+                    return {
+                        name: cols[0] ? cols[0].replace(/"/g, "").trim() : "",
+                        qty: cols[1] ? cols[1].replace(/"/g, "").trim() : "0",
+                        spec: cols[2] ? cols[2].replace(/"/g, "").trim() : "-",
+                        loc: cols[3] ? cols[3].replace(/"/g, "").trim() : "-"
+                    };
+                }).filter(item => item.name !== "");
+
+                statEl.innerText = `最後更新：${new Date().toLocaleTimeString()} (共 ${inventory.length} 筆)`;
+                search(); 
             } catch (e) {
-                document.getElementById('list').innerHTML = "❌ 無法讀取資料，請檢查網址設定";
+                console.error(e);
+                listEl.innerHTML = `
+                    <div class="bg-red-50 p-6 rounded-2xl text-center">
+                        <div class="text-red-500 font-bold mb-2">⚠️ 無法載入雲端資料</div>
+                        <div class="text-xs text-red-400 mb-4">${e.message}</div>
+                        <p class="text-xs text-slate-500 leading-relaxed">
+                            請檢查 Google Sheets 是否已點選：<br>
+                            檔案 > 共用 > <b>發佈到網路</b>
+                        </p>
+                    </div>`;
+            } finally {
+                loader.classList.add('hidden');
             }
         }
 
+        // 核心功能：搜尋過濾
         function search() {
             const query = document.getElementById('q').value.toLowerCase();
-            const list = document.getElementById('list');
-            const filtered = inventory.filter(i => i.name && i.name.toLowerCase().includes(query));
+            const listEl = document.getElementById('list');
             
+            const filtered = inventory.filter(i => 
+                i.name.toLowerCase().includes(query) || 
+                i.spec.toLowerCase().includes(query) ||
+                i.loc.toLowerCase().includes(query)
+            );
+
             if (filtered.length === 0) {
-                list.innerHTML = `<div class="text-center text-slate-400 py-10">查無相關零件</div>`;
+                listEl.innerHTML = `<div class="text-center text-slate-400 py-10 italic">查無符合條件的零件</div>`;
                 return;
             }
 
-            list.innerHTML = filtered.map(i => `
-                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center">
-                    <div>
-                        <div class="font-bold text-slate-800">${i.name}</div>
-                        <div class="text-xs text-slate-400">規格: ${i.spec || '-'} | 位置: ${i.loc || '-'}</div>
+            listEl.innerHTML = filtered.map(i => `
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center animate-fadeIn">
+                    <div class="flex-1 pr-4">
+                        <div class="font-bold text-slate-800 text-base mb-1">${i.name}</div>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
+                                規格: ${i.spec}
+                            </span>
+                            <span class="text-[10px] bg-blue-50 text-blue-500 px-2 py-0.5 rounded-md font-medium">
+                                位置: ${i.loc}
+                            </span>
+                        </div>
                     </div>
-                    <div class="text-2xl font-black ${parseInt(i.qty) < 10 ? 'text-red-500' : 'text-blue-600'}">${i.qty}</div>
+                    <div class="text-right">
+                        <div class="text-2xl font-black ${parseInt(i.qty) < 5 ? 'text-red-500' : 'text-indigo-600'}">
+                            ${i.qty}
+                        </div>
+                        <div class="text-[9px] text-slate-300 font-bold uppercase tracking-tighter">Current Stock</div>
+                    </div>
                 </div>
             `).join('');
         }
 
-        fetchData(); // 初始載入
+        // 啟動載入
+        fetchData();
     </script>
+
+    <style>
+        .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
 </body>
 </html>
-
