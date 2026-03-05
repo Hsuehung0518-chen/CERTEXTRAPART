@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>零件庫存助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+    <div class="max-w-md mx-auto flex flex-col min-h-screen">
+        <header class="bg-slate-900 p-6 sticky top-0 z-20">
+            <h1 class="text-white font-bold mb-3">📦 庫存即時查詢</h1>
+            <input type="text" id="q" oninput="search()" placeholder="輸入零件名稱..." 
+                   class="w-full p-4 rounded-2xl bg-slate-800 text-white border-none focus:ring-2 focus:ring-blue-500">
+        </header>
+
+        <main id="list" class="p-4 space-y-3 flex-1">
+            <div class="text-center text-slate-400 py-10">資料載入中...</div>
+        </main>
+
+        <footer class="p-4 text-center">
+            <button onclick="fetchData()" class="text-xs text-blue-500 underline">手動刷新數據</button>
+        </footer>
+    </div>
+
+    <script>
+        // --- 請貼入你「發佈到網路」的 Google Sheet 網址 ---
+        const SHEET_URL = "在此貼入你的Google_Sheet發佈網址";
+        // ----------------------------------------------
+        
+        let inventory = [];
+
+        async function fetchData() {
+            try {
+                // 讀取 CSV 格式較快且穩定
+                const csvUrl = SHEET_URL.replace(/\/pubhtml.*/, "/pub?output=csv");
+                const response = await fetch(csvUrl);
+                const data = await response.text();
+                
+                // 簡單的 CSV 解析 (跳過第一列標題)
+                const rows = data.split('\n').slice(1);
+                inventory = rows.map(row => {
+                    const cols = row.split(',');
+                    return { name: cols[0], qty: cols[1], spec: cols[2], loc: cols[3] };
+                });
+                search();
+            } catch (e) {
+                document.getElementById('list').innerHTML = "❌ 無法讀取資料，請檢查網址設定";
+            }
+        }
+
+        function search() {
+            const query = document.getElementById('q').value.toLowerCase();
+            const list = document.getElementById('list');
+            const filtered = inventory.filter(i => i.name && i.name.toLowerCase().includes(query));
+            
+            if (filtered.length === 0) {
+                list.innerHTML = `<div class="text-center text-slate-400 py-10">查無相關零件</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map(i => `
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center">
+                    <div>
+                        <div class="font-bold text-slate-800">${i.name}</div>
+                        <div class="text-xs text-slate-400">規格: ${i.spec || '-'} | 位置: ${i.loc || '-'}</div>
+                    </div>
+                    <div class="text-2xl font-black ${parseInt(i.qty) < 10 ? 'text-red-500' : 'text-blue-600'}">${i.qty}</div>
+                </div>
+            `).join('');
+        }
+
+        fetchData(); // 初始載入
+    </script>
+</body>
+</html>
+
