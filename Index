@@ -11,107 +11,119 @@
         <header class="bg-slate-900 p-6 sticky top-0 z-30 shadow-md">
             <div class="flex justify-between items-center mb-4">
                 <h1 class="text-white font-bold text-lg">📦 雲端零件檢索</h1>
-                <div id="syncBadge" class="text-[10px] text-slate-400 border border-slate-700 px-2 py-1 rounded-full">同步中...</div>
+                <div id="syncBadge" class="text-[10px] text-slate-400 border border-slate-700 px-2 py-1 rounded-full">連線中...</div>
             </div>
             <div class="relative">
                 <input type="text" id="filterInput" oninput="runFilter()" 
-                       placeholder="輸入名稱、規格或儲位搜尋..." 
+                       placeholder="搜尋料號或規格..." 
                        class="w-full p-4 pl-12 rounded-2xl bg-slate-800 text-white border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all">
-                <span class="absolute left-4 top-4 opacity-40">🔍</span>
+                <span class="absolute left-4 top-4 text-xl">🔍</span>
             </div>
         </header>
 
         <main id="itemList" class="flex-1 p-4 space-y-4 overflow-y-auto bg-slate-50">
-            <div class="text-center py-20 text-slate-400 italic">正在連接 Google Sheet 資料庫...</div>
+            <div id="loadingInfo" class="text-center py-20 text-slate-400 italic">同步資料中...</div>
         </main>
     </div>
 
     <script>
-        // --- 設定：請在此貼入你的 Google Sheet 發佈網址 ---
-        const SHEET_URL = "在此貼入你的Google_Sheet發佈網址";
-        // ----------------------------------------------
+        // ==========================================
+        // ⚠️ 關鍵：請確保此網址是「發佈到網路」的 CSV 連結
+        // ==========================================
+        const SHEET_URL = "在此貼上你的Google發佈網址";
 
         let db = [];
-        let headers = {};
 
         async function loadData() {
-            try {
-                const csvUrl = SHEET_URL.replace(/\/pubhtml.*/, "/pub?output=csv");
-                const response = await fetch(csvUrl);
-                const text = await response.text();
-                
-                // 解析 CSV 並處理括號內的逗號 (CSV 標準處理)
-                const rows = text.split(/\r?\n/).map(row => row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/));
-                if (rows.length < 1) return;
+            const listEl = document.getElementById('itemList');
+            const badge = document.getElementById('syncBadge');
 
-                // 動態搜尋標題索引
-                const firstRow = rows[0].map(h => h.replace(/"/g, "").trim());
-                headers = {
-                    name: firstRow.findIndex(h => h.includes("名稱") || h.includes("零件")),
-                    qty: firstRow.findIndex(h => h.includes("數量") || h.includes("庫存")),
-                    spec: firstRow.findIndex(h => h.includes("規格") || h.includes("描述")),
-                    loc: firstRow.findIndex(h => h.includes("位置") || h.includes("儲位")),
-                    photo: firstRow.findIndex(h => h.includes("照片") || h.includes("圖片"))
+            try {
+                let fetchUrl = SHEET_URL;
+                if (SHEET_URL.includes("pubhtml")) {
+                    fetchUrl = SHEET_URL.replace("pubhtml", "pub?output=csv");
+                } else if (!SHEET_URL.includes("output=csv")) {
+                    fetchUrl = SHEET_URL + (SHEET_URL.includes("?") ? "&" : "?") + "output=csv";
+                }
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error("請確認 Google Sheet 是否已「發佈到網路」");
+                
+                const csvData = await response.text();
+                const rows = csvData.split(/\r?\n/).filter(row => row.trim() !== "").map(row => {
+                    return row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                });
+
+                if (rows.length < 2) throw new Error("表格內無資料");
+
+                // --- 針對你的照片格式進行精準對齊 ---
+                const headers = rows[0].map(h => h.replace(/"/g, "").trim());
+                
+                // 這裡是根據你的圖片 1000009063.jpg 欄位設定的自動尋找邏輯
+                const findIdx = (keys) => headers.findIndex(h => keys.some(k => h === k || h.includes(k)));
+
+                const idx = {
+                    name: findIdx(["料號", "名稱"]),
+                    qty: findIdx(["在庫數量", "數量", "庫存"]),
+                    spec: findIdx(["規格", "描述"]),
+                    photo: findIdx(["照片", "圖片"])
                 };
 
+                if (idx.name === -1) throw new Error(`找不到『料號』欄位。目前標題有：${headers.join(",")}`);
+
                 db = rows.slice(1).map(row => ({
-                    name: row[headers.name]?.replace(/"/g, "") || "",
-                    qty: row[headers.qty]?.replace(/"/g, "") || "0",
-                    spec: row[headers.spec]?.replace(/"/g, "") || "-",
-                    loc: row[headers.loc]?.replace(/"/g, "") || "-",
-                    photo: row[headers.photo]?.replace(/"/g, "") || ""
+                    name: (row[idx.name] || "").replace(/"/g, "").trim(),
+                    qty: (row[idx.qty] || "0").replace(/"/g, "").trim(),
+                    spec: idx.spec !== -1 ? (row[idx.spec] || "-").replace(/"/g, "").trim() : "-",
+                    photo: idx.photo !== -1 ? (row[idx.photo] || "").replace(/"/g, "").trim() : ""
                 })).filter(i => i.name !== "");
 
-                document.getElementById('syncBadge').innerText = `已載入 ${db.length} 筆`;
+                badge.innerText = `已載入 ${db.length} 筆`;
                 runFilter();
+
             } catch (e) {
-                document.getElementById('itemList').innerHTML = `<div class="p-10 text-red-500 text-center text-sm">讀取失敗，請確認發佈設定。</div>`;
+                badge.innerText = "錯誤";
+                listEl.innerHTML = `<div class="p-10 text-center bg-red-50 rounded-3xl m-4 border border-red-100 text-red-600 text-xs">${e.message}</div>`;
             }
         }
 
         function runFilter() {
             const term = document.getElementById('filterInput').value.toLowerCase();
             const listEl = document.getElementById('itemList');
-            
-            const results = db.filter(i => 
-                i.name.toLowerCase().includes(term) || 
-                i.spec.toLowerCase().includes(term) || 
-                i.loc.toLowerCase().includes(term)
-            );
+            const results = db.filter(i => i.name.toLowerCase().includes(term) || i.spec.toLowerCase().includes(term));
 
             if (results.length === 0) {
-                listEl.innerHTML = `<div class="text-center py-20 text-slate-400 text-sm">查無符合條件的零件</div>`;
+                listEl.innerHTML = `<div class="text-center py-20 text-slate-400 text-sm">查無此料號</div>`;
                 return;
             }
 
             listEl.innerHTML = results.map(i => `
-                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 flex flex-col">
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 mb-4">
                     ${i.photo && i.photo.startsWith('http') ? 
-                        `<div class="w-full h-40 bg-slate-200 overflow-hidden">
-                            <img src="${i.photo}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/400x200?text=Image+Error'">
+                        `<div class="w-full h-48 bg-slate-200 overflow-hidden">
+                            <img src="${i.photo}" class="w-full h-full object-cover" onerror="this.parentNode.style.display='none'">
                         </div>` : ''
                     }
                     <div class="p-5">
-                        <div class="flex justify-between items-start">
+                        <div class="flex justify-between items-start mb-4">
                             <div class="flex-1 pr-4">
-                                <h3 class="font-black text-slate-800 text-lg leading-tight mb-1">${i.name}</h3>
-                                <p class="text-[10px] font-bold text-blue-500 uppercase tracking-widest">儲位: ${i.loc}</p>
+                                <h3 class="font-black text-slate-800 text-lg leading-tight mb-2">${i.name}</h3>
+                                <span class="bg-blue-50 text-blue-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">零件料號</span>
                             </div>
                             <div class="text-right">
-                                <span class="text-3xl font-black ${parseInt(i.qty) < 5 ? 'text-red-500' : 'text-slate-900'}">${i.qty}</span>
-                                <p class="text-[8px] text-slate-400 font-bold uppercase">In Stock</p>
+                                <span class="text-3xl font-black ${parseInt(i.qty) <= 0 ? 'text-red-500' : 'text-slate-900'}">${i.qty}</span>
+                                <p class="text-[8px] text-slate-400 font-bold uppercase tracking-widest">在庫數量</p>
                             </div>
                         </div>
-                        <div class="mt-4 pt-4 border-t border-slate-50">
-                            <p class="text-[11px] text-slate-400 font-bold mb-1 uppercase tracking-tighter">Specification</p>
-                            <p class="text-sm text-slate-600 leading-snug">${i.spec}</p>
+                        <div class="pt-4 border-t border-slate-50">
+                            <p class="text-[10px] text-slate-400 font-bold mb-2 uppercase tracking-tighter">Specification / 規格</p>
+                            <p class="text-sm text-slate-600 leading-snug font-medium">${i.spec}</p>
                         </div>
                     </div>
                 </div>
             `).join('');
         }
-
-        loadData();
+        window.onload = loadData;
     </script>
 </body>
 </html>
