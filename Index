@@ -65,7 +65,7 @@
                     return {
                         name: (row[0] || "").replace(/"/g, "").trim(), // 第一欄：料號
                         spec: (row[1] || "").replace(/"/g, "").trim(), // 第二欄：規格
-                        photo: (row[2] || "").replace(/"/g, "").trim(), // 第三欄：照片
+                        photo: (row[2] || "").replace(/"/g, "").trim(), // 第三欄：照片連結
                         qty: (row[3] || "0").replace(/"/g, "").trim()   // 第四欄：數量
                     };
                 }).filter(i => i.name !== "");
